@@ -80,9 +80,11 @@ Paths below are proposed implementation locations, not files asserted to exist. 
 - **Scope:** Recommend fail-closed DENY/REVIEW/unknown/low-confidence handling; per-user DMs, shared threads, explicitly threaded shared channels; conversation busy rejection without queueing; atomic burst/sustained algorithm and quota charging semantics. Define prompt/attachment size units, capability mappings and policy precedence, duplicate window, retention classes, and protected in-flight/pending-delivery records. Distinguish ingress authorization from shared-Hermes tool/memory safety.
 - **Done when:** Each decision is accepted or explicitly open with its affected tasks blocked. Numeric operational retention/capacity values may remain T25 rollout gates, but code-facing semantics cannot be ambiguous. No “review” approval workflow or downstream tool enforcement is implied.
 
+**Decisions recorded 2026-09-11:** [T04 behavioral and state decisions](2026-09-11-t04-behavioral-decisions.md) (D1–D11). All semantics resolved; TOML is the rules configuration format and every decision value ships as an overridable default. Supersessions to note: busy conversations queue one pending message (not immediate busy rejection); identity comes from a SQL provider + Redis cache behind a caller-owned interface (not static YAML identity mapping). Identity-provider interface refinement is pending the user's validation-layer document at T08.
+
 ### Operable service — milestone 2
 
-T05 and T06 are combined in one MR. Their approved scope and acceptance boundaries are defined in the [service foundation design](../superpowers/specs/2026-09-11-service-foundation-design.md); implementation remains pending.
+T05 and T06 are combined in one MR and **merged to main** ([PR #2](https://github.com/heruujoko/agent-proxy/pull/2), with CI on pushes and pull requests). Their approved scope and acceptance boundaries are defined in the [service foundation design](../superpowers/specs/2026-09-11-service-foundation-design.md).
 
 #### T05 — Bootstrap service and validated configuration
 
