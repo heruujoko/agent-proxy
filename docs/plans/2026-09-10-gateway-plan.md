@@ -1,6 +1,6 @@
 # Agent Access Gateway Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use executing-plans to implement this plan task-by-task.
+**Execution reference:** Use the [assessed task breakdown](2026-09-11-gateway-tasks.md) for work-item dependencies, decision gates, and completion evidence. The eight tasks below remain the milestone-level outline.
 
 **Goal:** Deliver the Discord-to-Hermes gateway defined by the [PRD](../../spec/agent-access-gateway-hermes-prd.md), with immutable input, deterministic authorization, Redis-backed coordination, progress delivery, and verified recovery behavior.
 
@@ -8,17 +8,17 @@
 
 **Tech Stack:** Go standard library for HTTP/JSON/logging/tests, Redis, a maintained Discord client, and a YAML parser. Exact dependency versions and Hermes distribution are not selected yet.
 
-**Status:** Proposed for review. This MR adds documentation only. Do not implement against invented Hermes endpoints. Task 1 is a prerequisite for finalizing Hermes-specific code, deployment manifests, and recovery assertions. Proposed paths below are not existing implementation claims.
+**Status:** Assessed on 2026-09-11; documentation only, not implementation approval. Architecture retained; integration and operational decisions remain open. Do not implement against invented Hermes endpoints. Task 1 gates Hermes-specific code, deployment manifests, and recovery assertions, not unrelated gateway work after implementation authorization. Proposed paths below are not existing implementation claims.
 
 ---
 
 ## Execution rules
 
 - Implement vertical slices; add only packages used by that slice. No Telegram scaffolding or future backend implementations.
-- Use Go's built-in test runner. For each new observable contract, add its failing check, observe the intended failure, implement the minimum behavior, and rerun the check.
+- Use Go's built-in test runner. Keep regression tests for observable behavior, boundaries, and failures, including PRD section 28; use actual service smoke scenarios for integration proof. Do not add tests that merely pin wiring or incidental defaults.
 - Use real Redis for atomicity and recovery integration tests; deterministic HTTP fixtures for verifier/Hermes boundary failures. No real Discord or LLM credentials are needed for the automated suite.
 - Run actual service smoke scenarios as well as tests. External credentials are prerequisites for live acceptance, not reasons to claim fixture tests prove live integration.
-- Work on the current implementation branch; no isolated worktrees without user authorization. Commit only the files belonging to the completed slice.
+- Work on the current implementation branch; no isolated worktrees, commits, deployment, or publication without user authorization.
 - Do not change PRD scope silently. Resolve contradictions in review before implementation; preserve unsupported-backend limitations explicitly.
 
 ## Task 1: Establish real integration contracts
@@ -31,8 +31,9 @@
 4. Record whether gateway death cancels execution, whether run creation is idempotent, and how concurrent sessions/runs behave.
 5. Confirm Discord ingress mode, required intents/permissions, connection ownership, and multi-process strategy.
 6. Resolve the design's proposed defaults and shared-Hermes trust assumptions. Pin dependencies only after these checks.
+7. Select the verifier provider/model, structured-output contract, and authentication independently of Hermes. Separate source inspection from live probes; lack of live credentials blocks live acceptance, not an evidence-backed client implementation.
 
-**Verify:** Save exact commands and redacted observations for the selected target. A capability matrix distinguishes observed support, unsupported behavior, and untested behavior. Do not mark durable recovery supported without demonstrating it. If the target is unavailable, this task remains blocked; gateway-independent work may proceed only under explicit implementation authorization.
+**Verify:** Save exact commands and redacted observations for the selected target. A capability matrix distinguishes observed support, unsupported behavior, and untested behavior. Do not mark durable recovery supported without demonstrating it. Track Hermes, Discord, verifier, and operational decisions separately using the breakdown's gates; gateway-independent work may proceed after implementation authorization without waiting for Hermes selection.
 
 ## Task 2: Create an operable Go service
 
@@ -67,8 +68,9 @@
 2. Create bounded duplicate-event ownership keyed by platform/source identity, with recoverable processing state rather than an irreversible seen flag.
 3. Implement atomic per-user active-run check/reservation and exactly-once terminal release.
 4. Implement conversation execution admission separately from user limits; reject busy conversations without adding a queue.
-5. Persist run reservation/request ownership before external effects. Define retention for completed records; active runs must not disappear under ordinary TTL expiration.
-6. Fail closed on Redis errors. Establish integration fixtures using isolated key namespaces and cleanup.
+5. Check established active-run exhaustion before invoking the verifier; keep the atomic post-policy reservation to close races. A preflight check does not reserve capacity or guarantee later admission.
+6. Persist run reservation/request ownership before external effects. Define retention for completed records; active runs must not disappear under ordinary TTL expiration. Persist quota decisions so duplicate processing does not repeatedly charge the same logical request.
+7. Fail closed on Redis errors. Establish integration fixtures using isolated key namespaces and cleanup.
 
 **Verify:** Run `REDIS_TEST_URL=redis://localhost:6379/15 go test ./internal/ratelimit ./internal/run ./internal/request -count=1`. Parallel admissions must not exceed limits; duplicate events create one logical request; duplicate finalization releases one reservation; worker lease expiry alone does not free an unknown active run. The test fixture must refuse unsafe cleanup of unrelated Redis keys.
 
@@ -80,7 +82,7 @@
 2. Validate fields, enums, confidence bounds, and requested capability names; preserve classification separately from input.
 3. Implement approved fail-closed handling for `DENY`, `REVIEW`, unknown/low-confidence classifications, malformed responses, and timeout.
 4. Evaluate requested capabilities against trusted role/group/source policy. No verifier result grants permissions.
-5. Wire identity -> rate checks -> validation -> verifier -> policy -> definitive active-run reservation. All denial paths terminate before session creation or Hermes invocation.
+5. Wire identity -> request rate checks and active-capacity preflight -> validation -> verifier -> policy -> definitive atomic user/conversation reservation. All denial paths terminate before session creation or Hermes invocation. Concurrent requests may pass preflight together, but only the definitive reservation authorizes a start.
 
 **Verify:** `go test ./internal/verifier ./internal/policy ./internal/request`. Include verifier PASS plus policy DENY, unauthorized capability, missing permissions, malformed output, timeout, low confidence, unknown identity, exhausted quota, and immutable original input. Assert zero Hermes calls on every denied path using an observable boundary fixture.
 
@@ -94,7 +96,7 @@
 2. Normalize safe operational/tool/output/terminal events; exclude private reasoning and unsupported raw payloads.
 3. Resolve session mappings with atomic creation ownership and the backend's verified idempotency/lookup semantics.
 4. Persist run intent, start execution, save the external run ID, and detach lifecycle management from the ingress request timeout.
-5. Store source/status-message identifiers and delivery state. Throttle progress edits, honor rate-limit responses, handle long output, and suppress unintended mentions.
+5. Store source/status-message identifiers, pending final output or a verified retrieval reference, and per-chunk delivery state. Throttle progress edits, honor rate-limit responses, handle long output, and suppress unintended mentions.
 6. Finalize run accounting independently of rendering. Replace the development echo path completely.
 
 **Verify:** `go test ./internal/agent/... ./internal/session ./internal/run ./internal/platform/discord`. Contract fixtures cover event translation, terminal errors, authentication errors, and session reuse. Live smoke: a permitted Discord request executes through Hermes, a follow-up reuses its session, and a task exceeding 30 seconds shows progress and delivers the final response.
@@ -107,9 +109,10 @@
 2. Add ownership-aware transitions so stale workers cannot overwrite another worker's state.
 3. Resume streams or query status/final output only where verified. Persist cursor/checkpoint information needed for supported recovery.
 4. Retry uncertain creation only if backend idempotency or lookup proves it safe. Otherwise retain explicit unknown state and report the limitation.
-5. Retry Discord delivery independently; never restart successful execution to resend a message.
-6. Test crash windows before external creation, after creation before Redis acknowledgement, during streaming, and after terminal state before delivery.
-7. Run two gateway processes against one Redis; verify dedupe, session creation, conversation serialization, user concurrency accounting, and ownership takeover. Separately validate approved Discord ingress ownership.
+5. Define operator reconciliation of unknown runs: require authoritative backend evidence before releasing capacity or retrying execution; never use age or lease expiry as proof of termination. Document the blocked-capacity limitation if evidence cannot be obtained.
+6. Retry Discord delivery independently from persisted output/checkpoints; never restart successful execution to resend a message.
+7. Test crash windows before external creation, after creation before Redis acknowledgement, during streaming, and after terminal state before delivery.
+8. Run two gateway processes against one Redis; verify dedupe, session creation, conversation serialization, user concurrency accounting, and ownership takeover. Separately validate approved Discord ingress ownership.
 
 **Verify:** `REDIS_TEST_URL=redis://localhost:6379/15 go test ./tests/integration ./internal/run -count=1` and `go test -race ./...`. Include a fixture run lasting more than 30 seconds, stream disconnect, process restart, duplicate terminal events, and Discord failure. Tests must assert the selected backend's actual recovery ceiling, not a stronger fixture-only guarantee. Repeat the recoverable live scenario against the pinned Hermes deployment.
 
@@ -145,4 +148,4 @@
 
 This document is a dependency-ordered proposal, not a report of completed work. No build, tests, service smoke, or live Hermes checks have run for an implementation because implementation is outside this documentation MR.
 
-Before execution, select Hermes and approve the system-design defaults. After Task 1, replace the intentionally unresolved protocol details with verified request/response contracts and exact reproduction commands. Do not weaken the PRD's observable acceptance criteria to accommodate an unsupported integration without user approval.
+Before execution, obtain implementation authorization. Resolve only the gates needed by the selected work item in the [task breakdown](2026-09-11-gateway-tasks.md); Hermes selection is not a dependency of pure gateway admission work. Replace unresolved protocol details with verified request/response contracts and reproduction commands before implementing those integrations. Do not weaken the PRD's observable acceptance criteria to accommodate an unsupported integration without user approval.

@@ -3,6 +3,7 @@
 **Status:** Proposed for review; not an implementation approval.
 **Source:** [Gateway PRD](../../spec/agent-access-gateway-hermes-prd.md)
 **Implementation sequence:** [Build plan](2026-09-10-gateway-plan.md)
+**Assessment and work items:** [Task breakdown](2026-09-11-gateway-tasks.md)
 
 ## Scope and success criteria
 
@@ -22,7 +23,7 @@ Alternatives considered:
 ```text
 Discord event
   -> canonical envelope / duplicate ownership
-  -> identity -> request rate limits -> deterministic validation
+  -> identity -> request rate limits / active-capacity preflight -> validation
   -> structured verifier -> deterministic policy
   -> atomic active-run admission -> session resolution
   -> Hermes run -> normalized events -> Discord renderer
@@ -73,11 +74,13 @@ Proposed internal execution states: `reserved -> starting -> running -> complete
 
 Persist run intent, actor ownership, source identifiers, and reservation before the external create operation. Persist the external run ID immediately after success. Use a stable request/run identity as an idempotency key only if Hermes supports that contract.
 
-Atomically check and reserve active-run capacity; repeat the definitive check after policy even if an early limit check avoids verifier cost. Terminal transitions release capacity once. Do not expire active records or free capacity merely because a worker lease expired. Use ownership leases and compare-and-set transitions so stale workers cannot finalize another worker's work.
+Check established user/conversation capacity exhaustion before the verifier to avoid needless model cost; this preflight is not a reservation. After policy, atomically check and reserve both user and conversation capacity together. Terminal transitions release capacity once. Do not expire active records or free capacity merely because a worker lease expired. Use ownership leases and compare-and-set transitions so stale workers cannot finalize another worker's work. Unknown runs require authoritative backend evidence for reconciliation; age alone is not evidence of completion.
 
-Record status-message IDs and recoverable rendering state in Redis. Track event cursors only if the backend supports meaningful replay. Execution success survives a Discord delivery failure. Reconnection, retries, and duplicate terminal events must not recreate execution or double-release capacity.
+Record status-message IDs, pending final output (or a verified durable retrieval reference), and per-chunk delivery checkpoints in Redis. Retain undelivered output until delivery succeeds or an explicit terminal delivery policy applies; completed execution alone must not expire a pending reply. Track event cursors only if the backend supports meaningful replay. Execution success survives a Discord delivery failure. Reconnection, retries, and duplicate terminal events must not recreate execution or double-release capacity.
 
 Exactly-once cross-system effects are not promised. A crash after an external operation but before its acknowledgement requires backend idempotency/reconciliation; Discord delivery can also be ambiguous. Document residual duplicate-message risk rather than claiming Redis eliminates it.
+
+Duplicate-event ownership is recoverable, not just a seen flag. Persist the logical request's admission stage and quota decision so takeover does not repeatedly charge rate budgets or repeat known-completed effects. Configure bounded retention for terminal requests and state the deduplication window; never expire an in-flight request solely because a dedupe TTL elapsed.
 
 ### Hermes integration gate
 
@@ -129,5 +132,6 @@ Discord bot ingress normally uses platform connection ownership/sharding, not in
 - Approve fail-closed `REVIEW`, shared-channel threading, and conversation busy defaults.
 - Accept the shared Hermes trust model or require tool enforcement/isolation as a separate scope change.
 - Specify expected workload, backend capacity, request/input retention, Redis recovery objective, and first-deployment credentials.
+- Select and verify the verifier provider/model and structured-output wire contract separately from the Hermes gate.
 
 No numerical latency/availability promises are inferred from the PRD. Deployment acceptance uses its explicit observable criteria; operational targets must be chosen before production rollout.
