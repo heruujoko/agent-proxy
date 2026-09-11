@@ -82,17 +82,19 @@ Paths below are proposed implementation locations, not files asserted to exist. 
 
 ### Operable service — milestone 2
 
+T05 and T06 are combined in one MR. Their approved scope and acceptance boundaries are defined in the [service foundation design](../superpowers/specs/2026-09-11-service-foundation-design.md); implementation remains pending.
+
 #### T05 — Bootstrap service and validated configuration
 
 - **Depends on:** implementation authorization; no Hermes contract dependency.
-- **Scope:** `go.mod`, `go.sum`, `cmd/gateway/main.go`, `internal/config/config.go`, `internal/audit/logger.go`, `config/config.example.yaml`. Select supported Go/Redis/YAML versions; compose only implemented dependencies. Add integration-specific settings with their owning slices rather than guessing them now. Reject invalid ranges, unresolved required secrets, and invalid identity/capability references without secret disclosure.
+- **Scope:** `go.mod`, `go.sum`, `cmd/gateway/main.go`, `internal/config/config.go`, `config/config.example.yaml`. Select supported Go/Redis/YAML versions; compose only implemented server/Redis/logging components. Require an explicit config file, reject unknown fields and invalid values, and resolve environment-sourced secrets without disclosure. Use `slog` directly rather than creating an audit wrapper. Integration-specific settings arrive with their owning slices; identity/capability reference validation belongs to T08/T14.
 - **Done when:** Configuration regression checks pass; the actual service starts with valid base configuration, exits clearly for invalid configuration, and emits structured logs without printing secret values. No enabled integration uses a fake backend fallback.
 
 #### T06 — Add Redis readiness and graceful shutdown
 
 - **Depends on:** T05.
-- **Scope:** `internal/server/health.go`, Redis client composition, lifecycle in `cmd/gateway/main.go`. Separate liveness/readiness; block admission on unavailable Redis; stop admission before shutting down clients. Establish isolated real-Redis fixtures for later tasks, never flushing unrelated keys.
-- **Done when:** Run the service and call `/healthz` and `/readyz`; stop Redis and observe healthy liveness, failed readiness, and rejected admission. Shutdown exits without claiming unfinished work completed. In-flight shutdown behavior is exercised after T19.
+- **Scope:** `internal/server/health.go`, Redis client composition, lifecycle in `cmd/gateway/main.go`. Start alive but unready when Redis is unavailable. Keep liveness independent of Redis; check readiness with a bounded per-request Redis `PING`. Mark stopping before HTTP draining, then close dependency clients. Establish disposable real-Redis fixtures, never flushing unrelated keys. No admission or in-flight run machinery exists in this slice.
+- **Done when:** Run the actual service, including startup without Redis; verify healthy liveness and failed readiness, then readiness recovery without gateway restart. Repeat Redis outage/recovery and verify bounded checks and graceful SIGTERM exit. Exercise invalid startup, listener-bind failure, and forced shutdown on drain deadline. T15 owns real admission rejection on Redis failure; T19 owns in-flight run shutdown proof.
 
 ### Discord admission — milestone 3
 
@@ -105,7 +107,7 @@ Paths below are proposed implementation locations, not files asserted to exist. 
 #### T08 — Resolve identity and validate deterministic limits
 
 - **Depends on:** T04, T05; canonical envelope contract above.
-- **Scope:** `internal/identity/resolver.go`, `internal/request/validation.go`. Resolve static trusted identities, reject unknown/disabled users, enforce configured text/attachment/context/pattern checks. Do not fetch arbitrary attachment URLs. Validation follows request budgets in the integrated pipeline.
+- **Scope:** `internal/identity/resolver.go`, `internal/request/validation.go`. Introduce and validate identity configuration with this slice. Resolve static trusted identities, reject unknown/disabled users, enforce configured text/attachment/context/pattern checks. Do not fetch arbitrary attachment URLs. Validation follows request budgets in the integrated pipeline.
 - **Done when:** Known/unknown/disabled identity, malformed request, boundary-sized text, attachment limits, and unsupported context have deterministic behavior. User text cannot inject roles or source IDs. T15 proves rejection occurs before model/backend calls.
 
 #### T09 — Define conversation isolation keys
@@ -145,7 +147,7 @@ Paths below are proposed implementation locations, not files asserted to exist. 
 #### T14 — Implement deterministic capability policy
 
 - **Depends on:** T04, T13.
-- **Scope:** `internal/policy/evaluator.go`. Evaluate trusted actor/role/group/source constraints and validated classification; deny missing permission mappings, DENY/REVIEW, and configured unsafe/uncertain classifications. Return decision, permitted/denied capabilities, and reason codes without building an approval queue.
+- **Scope:** `internal/policy/evaluator.go`. Introduce capability/policy configuration and validate its references with this slice. Evaluate trusted actor/role/group/source constraints and validated classification; deny missing permission mappings, DENY/REVIEW, and configured unsafe/uncertain classifications. Return decision, permitted/denied capabilities, and reason codes without building an approval queue.
 - **Done when:** Verifier PASS plus insufficient permission returns DENY; confidence cannot grant capability. Conflicting rules obey the recorded precedence; unknown/low-confidence input fails closed. Original prompt is unchanged.
 
 #### T15 — Integrate the deny-before-Hermes pipeline
@@ -153,6 +155,7 @@ Paths below are proposed implementation locations, not files asserted to exist. 
 - **Depends on:** T08, T09, T10, T11, T12, T13, T14.
 - **Scope:** `internal/request/pipeline.go`, composition in `cmd/gateway/main.go`. Enforce the shared admission sequence, propagate correlation IDs, and preserve denial/audit outcomes. Established active-capacity exhaustion rejects before the verifier; final atomic reservation after policy closes races.
 - **Done when:** Boundary fixtures observe zero verifier/Hermes calls for unknown users, exhausted quotas/capacity, and invalid input; zero Hermes/session-create calls for every classifier/policy denial. Concurrent preflight successes cannot start beyond capacity. An authorized request carries byte-preserved original text to the execution boundary, with no fake production execution path.
+- **Redis outage proof:** Exercise the actual admission path with unavailable/failing Redis and observe rejection before verifier/Hermes work. A successful readiness check does not authorize admission; operation errors must still fail closed. This is the admission proof deferred from T06.
 
 ### First complete execution — milestone 6
 

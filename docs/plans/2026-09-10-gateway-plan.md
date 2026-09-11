@@ -37,15 +37,15 @@
 
 ## Task 2: Create an operable Go service
 
-**Files:** `go.mod`, `go.sum`, `cmd/gateway/main.go`, `internal/config/config.go`, `internal/config/config_test.go`, `internal/server/health.go`, `internal/server/health_test.go`, `internal/audit/logger.go`, `config/config.example.yaml`.
+**Files:** `go.mod`, `go.sum`, `cmd/gateway/main.go`, `internal/config/config.go`, `internal/config/config_test.go`, `internal/server/health.go`, `internal/server/health_test.go`, `config/config.example.yaml`, relevant lifecycle tests, and `README.md`. T05/T06 are one MR governed by the [service foundation design](../superpowers/specs/2026-09-11-service-foundation-design.md).
 
 1. Initialize the module using the repository path and a supported Go version.
-2. Add validated configuration for Redis, Discord, Hermes, verifier, identities, capabilities, limits, and timeouts. Reject missing secrets and invalid ranges without printing secret values.
-3. Compose dependencies in `main`; use `slog` structured output and standard-library HTTP health endpoints.
-4. Add graceful shutdown that stops admission before closing dependency clients.
+2. Require an explicit YAML config path and validate only implemented server, Redis, logging, and lifecycle settings. Reject unknown fields, missing configured environment secrets, and invalid values without printing secret values. Add integration/identity/capability settings and reference validation with their owning slices.
+3. Compose dependencies in `main`; use `slog` directly and standard-library HTTP health endpoints, without a generic audit wrapper.
+4. Start alive but unready during Redis failure; check readiness with a bounded per-request `PING`. On shutdown, mark stopping, drain HTTP within its deadline, then close Redis. No admission or in-flight run machinery is included yet.
 5. Create only the Redis connection needed by the service; do not invent generic repository frameworks.
 
-**Verify:** `go test ./internal/config ./internal/server` must cover invalid configuration, secret-safe errors, and Redis-dependent readiness. Run `go run ./cmd/gateway` against a local Redis and call `curl -fsS http://localhost:8080/healthz` and `/readyz`. Stop Redis: liveness remains healthy, readiness fails, and new work is not admitted.
+**Verify:** Configuration and HTTP/lifecycle checks cover invalid startup, secret-safe errors, listener-bind failure, bounded Redis readiness, graceful SIGTERM, and forced closure on drain failure. Run `go run ./cmd/gateway --config config/config.example.yaml` against isolated Redis and call `/healthz` and `/readyz`. Start without Redis and repeat outage/recovery: liveness stays healthy and readiness recovers without a gateway restart. Use containerized Go/Redis without host installation; verify daemon access before execution and document commands actually exercised. Real admission rejection on Redis errors belongs to T15; in-flight run shutdown proof belongs to T19.
 
 ## Task 3: Deliver the Discord admission slice
 
