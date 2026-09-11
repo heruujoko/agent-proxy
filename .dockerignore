@@ -1,0 +1,13 @@
+# Allow only module metadata and the gateway's production Go packages.
+**
+!go.mod
+!go.sum
+!cmd/
+!cmd/gateway/
+!cmd/gateway/*.go
+!internal/
+!internal/config/
+!internal/config/*.go
+!internal/server/
+!internal/server/*.go
+**/*_test.go

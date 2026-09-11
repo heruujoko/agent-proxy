@@ -1,0 +1,8 @@
+server:
+  listen: "127.0.0.1:8080"
+  readiness_timeout: 1s
+  shutdown_timeout: 10s
+redis:
+  address: "127.0.0.1:6379"
+log:
+  level: info

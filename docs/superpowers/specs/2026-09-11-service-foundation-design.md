@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-11
 **Branch:** `feat/gateway-service-foundation`
-**Status:** Design sections approved in conversation; written-spec review pending. Implementation has not started.
+**Status:** Written design approved; implementation with subagents authorized. The subsequent gateway Dockerfile request is included below.
 **Scope:** One MR combining T05 and T06 from the [task breakdown](../../plans/2026-09-11-gateway-tasks.md).
 **References:** [System design](../../plans/2026-09-10-gateway-design.md), [milestone plan](../../plans/2026-09-10-gateway-plan.md), [PRD](../../../spec/agent-access-gateway-hermes-prd.md).
 
@@ -14,7 +14,9 @@ This is an operational foundation, not a Discord-to-Hermes gateway yet. No reque
 
 Included artifacts are the Go module, service implementation, focused regression tests, isolated real-Redis verification support, example configuration, README instructions, this design, and the subsequent implementation plan. Existing task descriptions must agree with the acceptance ownership in section 8.
 
-Excluded: Discord/Hermes/verifier integrations and settings; identity/capability configuration; generic repository or audit frameworks; production Dockerfile/Compose packaging; host package installation; unrelated refactoring. Production packaging remains T24. No empty packages or interfaces for future features.
+Excluded: Discord/Hermes/verifier integrations and settings; identity/capability configuration; generic repository or audit frameworks; production Compose/Hermes packaging; host package installation; unrelated refactoring. No empty packages or interfaces for future features.
+
+**User-approved scope addition:** Include a gateway-only multi-stage Dockerfile, narrow `.dockerignore`, container-safe YAML example, and documented build/run commands. Build a static Go binary, run as a non-root UID in a minimal image, mount configuration read-only, and verify the actual image against isolated Redis. Do not bake secrets or configuration into the runtime image. Compose and Hermes deployment remain T24.
 
 ## 2. Architecture and alternatives
 
@@ -161,7 +163,7 @@ Health during the short shutdown transition is covered deterministically rather 
 
 During design exploration, `go` and `redis-server` were absent from PATH. Docker 29.7.2 and Docker Compose 5.5.0 CLIs were present; daemon access has not been verified. The approved verification approach uses containerized Go and Redis, avoiding host package installation. Confirm daemon access before execution and pin the supported toolchain/image versions in the implementation plan. A missing daemon or permission failure is an environment blocker, not a passing smoke test.
 
-Containerized development/test commands are not production packaging. Keep transient scenarios disposable; remove throwaway scripts and resources after proof. README instructions must describe commands actually exercised, including explicit container bind/network configuration when used.
+The gateway image is now a deliverable by explicit user request; disposable Go/Redis verification containers remain test infrastructure, not a Compose/Hermes deployment. Keep transient scenarios disposable; remove throwaway scripts and resources after proof. README instructions must describe commands actually exercised, including explicit container bind/network configuration when used.
 
 After integration, format changed Go files and run the full implementation test suite, race checks, `go vet`, build, and the actual-process smoke scenario. This document records intended verification only; none of those implementation checks have run yet.
 
@@ -176,7 +178,7 @@ After integration, format changed Go files and run the full implementation test 
 | T15 | Real admission rejects Redis failures before model/backend work; readiness alone is not proof |
 | T19 | In-flight run shutdown preserves recoverable metadata and does not invent completion |
 | T23 | End-to-end correlated gateway lifecycle auditing |
-| T24 | Production Dockerfile/Compose topology and Hermes packaging |
+| This MR / T24 | Gateway-only Dockerfile and image smoke now; Compose topology and Hermes packaging remain T24 |
 
 The existing milestone plan's early all-integrations configuration, `internal/audit` wrapper, and admission-rejection claim are superseded for T05/T06 by this scoped design. Update those descriptions alongside this spec so future execution does not reintroduce deferred work.
 
@@ -184,4 +186,4 @@ The existing milestone plan's early all-integrations configuration, `internal/au
 
 T05/T06 implementation is complete only when its included behavior, regression checks, actual-process smoke, and documentation agree, with exact commands/results recorded. An HTTP server that only compiles, a fake Redis fallback, or a readiness flag without the real client check is insufficient.
 
-The design sections were approved in conversation. The next gate is user review of this written spec. After that approval, invoke `writing-plans` to produce the implementation plan for this MR. Do not write implementation code, push this branch, open an MR, or deploy as part of this documentation step.
+The written spec is approved and the user authorized implementation with subagents after planning. Follow the [implementation plan](../plans/2026-09-11-service-foundation.md). Scoped sudo Docker commands for this task's disposable build/test containers are authorized; changing socket/group permissions or installing host packages is not. Push, MR publication, merge, and deployment still require separate authorization.
