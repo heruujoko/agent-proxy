@@ -1,0 +1,30 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test with race detection
+        run: go test -race ./... -count=1
+      - name: Vet
+        run: go vet ./...
+      - name: Build gateway
+        run: go build -o "$RUNNER_TEMP/gateway" ./cmd/gateway
+      - name: Build Docker image
+        run: docker build --tag agent-proxy:ci .
